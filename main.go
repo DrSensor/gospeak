@@ -1,12 +1,15 @@
 package main
 
 import (
-	"io"
+	"github.com/faiface/beep"
+	"github.com/faiface/beep/mp3"
+	"github.com/faiface/beep/speaker"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
+	"time"
 )
 
 func main() {
@@ -14,5 +17,13 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	io.Copy(os.Stdout, resp.Body)
+	streamer, format, err := mp3.Decode(resp.Body)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer streamer.Close()
+	speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
+	done := make(chan bool)
+	speaker.Play(beep.Seq(streamer, beep.Callback(func() { done <- true })))
+	<-done
 }
