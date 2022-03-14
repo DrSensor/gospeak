@@ -49,6 +49,7 @@ func isPunctuation(char byte) bool { return char == '.' || char == '!' || char =
 func (s *SentenceReader) WriteTo(w io.Writer) (int64, error) {
 	var (
 		buf            = tNull
+		capitalize     = true
 		sentence       string
 		char, charPrev byte
 		timeout        *time.Timer
@@ -77,9 +78,16 @@ func (s *SentenceReader) WriteTo(w io.Writer) (int64, error) {
 				log.Printf("<- ('%s' [%d]) @ ('%s' [%d])", string(charPrev), charPrev, string(char), char)
 				s.punc <- charPrev
 			}
+			if charPrev != ',' {
+				capitalize = true
+			}
 		default:
 			log.Print(string(buf[:]))
 			sentence += string(char)
+			if capitalize {
+				copy(buf[:], strings.ToTitle(string(buf[:])))
+				capitalize = false
+			}
 		}
 
 		switch nw, err := w.Write(buf[:]); {
