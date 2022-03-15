@@ -74,9 +74,11 @@ func (s *SentenceReader) WriteTo(w io.Writer) (int64, error) {
 		case isPunctuation(charPrev) && IsWhitespace(char):
 			if timeout != nil {
 				timeout.Stop()
-				s.queue(&sentence)
-				log.Printf("<- ('%s' [%d]) @ ('%s' [%d])", string(charPrev), charPrev, string(char), char)
-				s.punc <- charPrev
+				if charPrev != ',' {
+					s.queue(&sentence)
+					log.Printf("<- ('%s' [%d]) @ ('%s' [%d])", string(charPrev), charPrev, string(char), char)
+					s.punc <- charPrev
+				}
 			}
 			if charPrev != ',' {
 				capitalize = true
