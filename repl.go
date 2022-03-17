@@ -17,6 +17,7 @@ func Sentencing(r io.Reader, punctuation chan<- byte) *SentenceReader {
 	return &SentenceReader{
 		Reader: r, punc: punctuation,
 		Sentences: &[]string{""},
+		count:     &Statistics{},
 	}
 }
 
@@ -24,6 +25,7 @@ type SentenceReader struct {
 	io.Reader
 	Sentences *[]string
 	punc      chan<- byte
+	count     *Statistics
 }
 
 func (s *SentenceReader) Paragraph() *string {
@@ -45,7 +47,9 @@ func (s *SentenceReader) queue(sentence *string) {
 	*sentence = ""
 }
 
-func isPunctuation(char byte) bool { return char == '.' || char == '!' || char == '?' || char == ',' }
+func isPunctuation(char byte) bool { return char == '.' || char == '!' || char == '?' || isComma(char) }
+func isComma(char byte) bool       { return char == ',' } // reserved for future use like Arabic comma (،)
+func isHyphen(char byte) bool      { return char == '-' } // reserved for future use like Japanese hyphen (゠) or (＝)
 
 func (s *SentenceReader) WriteTo(w io.Writer) (int64, error) {
 	var (
@@ -70,18 +74,24 @@ func (s *SentenceReader) WriteTo(w io.Writer) (int64, error) {
 			log.Printf("^ %s [%d]", string(char), char)
 			buf = tClear
 		case char == 3: // Ctrl-c
+			if !isPunctuation(charPrev) {
+				s.count.sentence++
+				if !IsWhitespace(charPrev) {
+					s.count.word++
+				}
+			}
 			s.punc <- 0
 			return int64(len(buf)), nil
 		case isPunctuation(charPrev) && IsWhitespace(char):
 			if timeout != nil {
 				timeout.Stop()
-				if charPrev != ',' {
+				if !isComma(charPrev) {
 					s.queue(&sentence)
 					log.Printf("<- ('%s' [%d]) @ ('%s' [%d])", string(charPrev), charPrev, string(char), char)
 					s.punc <- charPrev
 				}
 			}
-			if charPrev != ',' {
+			if !isComma(charPrev) {
 				capitalize = true
 			}
 		default:
@@ -104,9 +114,16 @@ func (s *SentenceReader) WriteTo(w io.Writer) (int64, error) {
 				log.Printf("<- ('%s' [%d])", string(char), char)
 				s.punc <- char
 			})
+			s.count.sentence++
+			s.count.word++
+		case (IsWhitespace(char) && !IsWhitespace(charPrev) && !isPunctuation(charPrev)) ||
+			(isHyphen(char) && !isHyphen(charPrev)):
+			s.count.word++
 		case char == 13:
 			buf = tNull
 			s.punc <- char
+			s.count.sentence++
+			s.count.word++
 		}
 
 		charPrev = char

@@ -35,30 +35,45 @@ func main() {
 
 	var text string
 	var sentence <-chan *string
+	var count *Statistics
 
 	switch {
 	case !term.IsTerminal(fdStdin):
 		bytes, _ := io.ReadAll(os.Stdin)
 		text = string(bytes[:len(bytes)-1]) // exclude carriage return
+		src = "stdin"
 	case len(os.Args) != 1:
 		text = strings.Join(os.Args[1:], " ")
+		src = "args"
 	default:
-		sentence = startTypingMode() // enter interactive/repl mode
+		sentence, count = startTypingMode() // enter interactive/repl mode
+		src = "repl"
 	}
 
 	switch err := speaker.Init(stdSampleRate, stdSampleRate.N(time.Second/10)); {
 	case err != nil:
 		log.Fatal().Err(err).Send()
 	case sentence != nil:
-		for {
-			<-Speak(<-sentence)
+		for text := <-sentence; text != nil; text = <-sentence {
+			<-Speak(text)
 		}
 	case text != "":
+		count = Stats(text)
 		if done := Speak(&text); done != nil {
 			<-done
 		}
 	default:
 		log.Fatal().Msg("can't speak <empty string>")
+	}
+
+	{
+		log := log.Info().
+			Str("src", src).
+			Object("count", count)
+		if dst != "" {
+			log.Str("dst", dst)
+		}
+		log.Msg("exit")
 	}
 }
 
@@ -67,7 +82,7 @@ var (
 	fdStdout = int(os.Stdout.Fd())
 )
 
-func startTypingMode() <-chan *string {
+func startTypingMode() (<-chan *string, *Statistics) {
 	screen := Screen(os.Stdout)
 	screen.EraseLine()
 	oldState, err := term.MakeRaw(fdStdin)
@@ -89,7 +104,7 @@ func startTypingMode() <-chan *string {
 					log.Fatal().Err(err).Send()
 				}
 				log.Printf("~> CLOSE <~ ('%s' [%d])", string(char), char)
-				os.Exit(int(char))
+				text <- nil
 			case char == 13:
 				fallthrough
 			default:
@@ -100,7 +115,7 @@ func startTypingMode() <-chan *string {
 			}
 		}
 	}()
-	return text
+	return text, read.count
 }
 
 const (
@@ -119,6 +134,7 @@ func Speak(text *string) (done <-chan struct{}) {
 		log.Err(err).Stack().Str("url", req).Send()
 	case !term.IsTerminal(fdStdout) && strings.Join(os.Args[1:], " ") != "!":
 		io.Copy(os.Stdout, resp.Body)
+		dst = "stdout"
 	default:
 		done = Play(resp.Body, 4*kHz)
 	}

@@ -54,3 +54,33 @@ func InitUserLog(name string, version float32) func() {
 		}
 	}
 }
+
+type Statistics struct {
+	word     uint32
+	sentence uint16
+}
+
+func (count Statistics) MarshalZerologObject(log *zerolog.Event) {
+	log.Uint16("sentence", count.sentence).
+		Uint32("word", count.word)
+}
+
+func Stats(text string) *Statistics {
+	var charPrev byte
+	count := &Statistics{}
+	for index, char := range text {
+		char := byte(char)
+		switch {
+		case (isPunctuation(charPrev) && IsWhitespace(char)) || index == len(text)-1:
+			if !isComma(charPrev) {
+				count.sentence++
+			}
+			count.word++
+		case (IsWhitespace(char) && !IsWhitespace(charPrev) && !isPunctuation(charPrev)) ||
+			(isHyphen(char) && !isHyphen(charPrev)):
+			count.word++
+		}
+		charPrev = char
+	}
+	return count
+}
