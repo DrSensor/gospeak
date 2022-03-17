@@ -7,9 +7,10 @@ package main
 
 import (
 	"io"
-	"log"
 	"strings"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 func Sentencing(r io.Reader, punctuation chan<- byte) *SentenceReader {

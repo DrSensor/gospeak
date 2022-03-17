@@ -7,7 +7,6 @@ package main
 
 import (
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -17,6 +16,8 @@ import (
 	"github.com/faiface/beep"
 	"github.com/faiface/beep/mp3"
 	"github.com/faiface/beep/speaker"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/term"
 )
 
@@ -25,18 +26,11 @@ const (
 	reqUrl                        = "https://simplytranslate.org/api/tts/?engine=google&lang=auto&text="
 )
 
-func initLog(name string) func() error {
-	// file, err := os.CreateTemp(name, "*.log")
-	file, err := os.OpenFile(name+".log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.SetOutput(file)
-	return file.Close
-}
+var src, dst string
 
 func main() {
-	close := initLog("gospeak")
+	close := InitUserLog("gospeak", 0.1)
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	defer close()
 
 	var text string
@@ -54,7 +48,7 @@ func main() {
 
 	switch err := speaker.Init(stdSampleRate, stdSampleRate.N(time.Second/10)); {
 	case err != nil:
-		log.Fatal(err)
+		log.Fatal().Err(err).Send()
 	case sentence != nil:
 		for {
 			<-Speak(<-sentence)
@@ -64,7 +58,7 @@ func main() {
 			<-done
 		}
 	default:
-		log.Fatal("can't speak <empty string>")
+		log.Fatal().Msg("can't speak <empty string>")
 	}
 }
 
@@ -78,7 +72,7 @@ func startTypingMode() <-chan *string {
 	screen.EraseLine()
 	oldState, err := term.MakeRaw(fdStdin)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal().Err(err).Send()
 	}
 	punc := make(chan byte)
 	text := make(chan *string)
@@ -92,7 +86,7 @@ func startTypingMode() <-chan *string {
 			case char < 3:
 				screen.Reset()
 				if err := term.Restore(fdStdin, oldState); err != nil {
-					log.Fatal(err)
+					log.Fatal().Err(err).Send()
 				}
 				log.Printf("~> CLOSE <~ ('%s' [%d])", string(char), char)
 				os.Exit(int(char))
@@ -115,11 +109,14 @@ const (
 )
 
 func Speak(text *string) (done <-chan struct{}) {
+	log.Info().
+		Str("engine", "google translate").
+		Str("service", reqUrl).
+		Msg("convert text to speech audio")
 	req := reqUrl + url.QueryEscape(*text)
-	log.Printf("request: %s", req)
 	switch resp, err := http.Get(req); {
 	case err != nil:
-		log.Fatalf("REQUEST: %s", err)
+		log.Err(err).Stack().Str("url", req).Send()
 	case !term.IsTerminal(fdStdout) && strings.Join(os.Args[1:], " ") != "!":
 		io.Copy(os.Stdout, resp.Body)
 	default:
@@ -133,7 +130,14 @@ func Play(input io.ReadCloser, offset beep.SampleRate) <-chan struct{} {
 	var streamer beep.Streamer // hey Go! can we have decent syntax for this
 	streamer, format, err := mp3.Decode(input)
 	if err != nil {
-		log.Fatalf("DECODE: %s", err)
+		log.Fatal().Err(err).Send()
+	} else {
+		log.Info().
+			Int("precision", format.Precision).
+			Int("numChannels", format.NumChannels).
+			Dur("sampleRate", time.Duration(format.SampleRate)).
+			Dur("offset", time.Duration(offset)).
+			Msg("play audio!")
 	}
 	done := make(chan struct{})
 	streamer = beep.Resample(1, format.SampleRate+offset, stdSampleRate, streamer)
